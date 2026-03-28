@@ -74,6 +74,11 @@ class OpenAIClient(BaseLLMClient):
                     llm_kwargs["api_key"] = api_key
             elif self.provider == "ollama":
                 llm_kwargs["api_key"] = "ollama"
+            elif self.provider == "custom":
+                if self.base_url:
+                    llm_kwargs["base_url"] = self.base_url
+                if "api_key" not in llm_kwargs:
+                    llm_kwargs["api_key"] = "custom"
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
 
