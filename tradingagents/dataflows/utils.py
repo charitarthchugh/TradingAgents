@@ -1,5 +1,6 @@
 import re
 from datetime import date, datetime, timedelta
+from pathlib import PurePosixPath
 from typing import Annotated
 
 import pandas as pd
@@ -40,6 +41,43 @@ def safe_ticker_component(value: str, *, max_len: int = 32) -> str:
     if set(value) == {"."}:
         raise ValueError(f"ticker cannot consist solely of dots: {value!r}")
     return value
+
+
+def render_report_path(template: str, *, ticker: str, analysis_date: str) -> PurePosixPath:
+    """Render the per-run report subdirectory from a user-supplied template.
+
+    The result is a *relative* PurePosixPath that callers join to
+    ``config["results_dir"]``. Returning a relative path (not an absolute one)
+    is part of the contract — it prevents a malicious or buggy template from
+    escaping the configured results root.
+
+    Supported template variables:
+        {ticker}         — the ticker symbol, sanitized via safe_ticker_component
+        {analysis_date}  — the YYYY-MM-DD analysis date string
+        {year}, {month}, {day} — components of analysis_date as zero-padded strings
+
+    Example:
+        >>> render_report_path("{ticker}/{analysis_date}/reports",
+        ...                    ticker="AAPL", analysis_date="2026-05-22")
+        PurePosixPath('AAPL/2026-05-22/reports')
+    """
+    safe = safe_ticker_component(ticker)
+    parsed = datetime.strptime(analysis_date, "%Y-%m-%d")
+    variables = {
+        "ticker": safe,
+        "analysis_date": analysis_date,
+        "year": f"{parsed.year:04d}",
+        "month": f"{parsed.month:02d}",
+        "day": f"{parsed.day:02d}",
+    }
+    rendered = template.format_map(variables)
+    path = PurePosixPath(rendered)
+    if not path.parts or path.is_absolute() or any(p == ".." for p in path.parts):
+        raise ValueError(
+            "report_path_template must render to a relative, non-empty path "
+            f"with no '..' segments: template={template!r} rendered={rendered!r}"
+        )
+    return path
 
 
 def save_output(data: pd.DataFrame, tag: str, save_path: SavePathType = None) -> None:
