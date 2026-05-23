@@ -42,6 +42,7 @@ from cli.utils import (
     select_shallow_thinking_agent,
 )
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.dataflows.utils import render_report_path
 from tradingagents.graph.analyst_execution import (
     AnalystWallTimeTracker,
     build_analyst_execution_plan,
@@ -1030,11 +1031,20 @@ def run_analysis(checkpoint: bool | None = None):
     # Track start time for elapsed display
     start_time = time.time()
 
-    # Create result directory
-    results_dir = Path(config["results_dir"]) / selections["ticker"] / selections["analysis_date"]
-    results_dir.mkdir(parents=True, exist_ok=True)
-    report_dir = results_dir / "reports"
+    # Create result directory. The per-run layout under results_dir is driven
+    # by the ``report_path_template`` config key so users can restructure the
+    # tree (e.g. date-first layouts) without code changes.
+    relative_report_path = render_report_path(
+        config["report_path_template"],
+        ticker=selections["ticker"],
+        analysis_date=selections["analysis_date"],
+    )
+    report_dir = Path(config["results_dir"]) / relative_report_path
     report_dir.mkdir(parents=True, exist_ok=True)
+    # Sibling log file lives one level up from the reports folder so the
+    # template can place ``reports`` wherever the user wants without burying
+    # the log inside it.
+    results_dir = report_dir.parent
     log_file = results_dir / "message_tool.log"
     log_file.touch(exist_ok=True)
 
