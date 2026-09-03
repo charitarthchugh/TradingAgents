@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 from pathlib import Path
 
 import questionary
@@ -289,10 +290,64 @@ def _prompt_custom_model_id() -> str:
     return _require_text("Enter model ID:", "Please enter a model ID.")
 
 
-def _select_model(provider: str, mode: str) -> str:
+@lru_cache(maxsize=8)
+def _fetch_openai_compatible_models(base_url: str, api_key: str | None) -> tuple[tuple[str, str], ...]:
+    """List models a generic OpenAI-compatible server exposes at ``/v1/models``.
+
+    vLLM, LM Studio, llama.cpp and most relays implement the endpoint, so the
+    served model set is discoverable at runtime (the static catalog can't know
+    it). Cached so the two consecutive quick/deep selections hit the server
+    once. Returns () on any failure; the caller falls back to free-text entry.
+    """
+    import requests
+    url = base_url.rstrip("/") + "/models"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        return tuple((m["id"], m["id"]) for m in data if m.get("id"))
+    except Exception as e:
+        console.print(f"\n[yellow]Could not list models from {url}: {e}[/yellow]")
+        return ()
+
+
+def select_openai_compatible_model(mode: str, base_url: str | None) -> str:
+    """Pick a model from what the endpoint serves, or enter a custom ID."""
+    key_env = get_api_key_env("openai_compatible")
+    api_key = os.environ.get(key_env) if key_env else None
+    models = _fetch_openai_compatible_models(base_url, api_key) if base_url else ()
+    if not models:
+        return _prompt_custom_model_id()
+
+    choices = [questionary.Choice(name, value=mid) for name, mid in models]
+    choices.append(questionary.Choice("Custom model ID", value="custom"))
+    choice = questionary.select(
+        f"Select Your [{mode.title()}-Thinking] Model:",
+        choices=choices,
+        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+        style=questionary.Style([
+            ("selected", "fg:magenta noinherit"),
+            ("highlighted", "fg:magenta noinherit"),
+            ("pointer", "fg:magenta noinherit"),
+        ]),
+    ).ask()
+
+    if choice is None:
+        console.print(f"\n[red]No {mode} thinking llm engine selected. Exiting...[/red]")
+        exit(1)
+    if choice == "custom":
+        return _prompt_custom_model_id()
+    return choice
+
+
+def _select_model(provider: str, mode: str, backend_url: str | None = None) -> str:
     """Select a model for the given provider and mode (quick/deep)."""
     if provider.lower() == "openrouter":
         return select_openrouter_model(mode)
+
+    if provider.lower() == "openai_compatible":
+        return select_openai_compatible_model(mode, backend_url)
 
     if provider.lower() == "azure":
         return _require_text(
@@ -326,14 +381,14 @@ def _select_model(provider: str, mode: str) -> str:
     return choice
 
 
-def select_shallow_thinking_agent(provider) -> str:
+def select_shallow_thinking_agent(provider, backend_url=None) -> str:
     """Select shallow thinking llm engine using an interactive selection."""
-    return _select_model(provider, "quick")
+    return _select_model(provider, "quick", backend_url)
 
 
-def select_deep_thinking_agent(provider) -> str:
+def select_deep_thinking_agent(provider, backend_url=None) -> str:
     """Select deep thinking llm engine using an interactive selection."""
-    return _select_model(provider, "deep")
+    return _select_model(provider, "deep", backend_url)
 
 def _llm_provider_table() -> list[tuple[str, str, str | None]]:
     """(display_name, provider_key, base_url) for every supported provider.
@@ -388,11 +443,16 @@ def resolve_backend_url(
     return env_url or menu_url or provider_default_url(provider)
 
 
-def prompt_openai_compatible_url() -> str:
-    """Prompt for a custom OpenAI-compatible endpoint base URL."""
+def prompt_openai_compatible_url(default: str | None = None) -> str:
+    """Prompt for a custom OpenAI-compatible endpoint base URL.
+
+    ``default`` (from TRADINGAGENTS_LLM_BACKEND_URL when set) prefills the
+    field so the user confirms or edits it rather than retyping.
+    """
     url = questionary.text(
         "Enter the OpenAI-compatible base URL "
         "(e.g. http://localhost:8000/v1 for vLLM, http://localhost:1234/v1 for LM Studio):",
+        default=default or "",
         validate=lambda x: x.strip().startswith(("http://", "https://"))
         or "Enter a URL starting with http:// or https://",
     ).ask()

@@ -660,10 +660,11 @@ def get_user_selections():
             selected_llm_provider, backend_url, env_url=DEFAULT_CONFIG["backend_url"]
         )
 
-        # The generic OpenAI-compatible endpoint has no default; ask for it if
-        # neither the menu nor the environment supplied one.
-        if selected_llm_provider == "openai_compatible" and not backend_url:
-            backend_url = prompt_openai_compatible_url()
+        # The generic OpenAI-compatible endpoint has no menu default; prompt for
+        # it, prefilled from the environment when set so the user confirms or
+        # edits the URL before we query its /v1/models for the model picker.
+        if selected_llm_provider == "openai_compatible":
+            backend_url = prompt_openai_compatible_url(default=backend_url)
 
         # For Ollama, surface the resolved endpoint (OLLAMA_BASE_URL vs default)
         # before model selection so it's obvious where we're connecting.
@@ -689,8 +690,8 @@ def get_user_selections():
                 "Step 7: Thinking Agents", "Select your thinking agents for analysis"
             )
         )
-        selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
-        selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
+        selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider, backend_url)
+        selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider, backend_url)
 
     # Step 8: Provider-specific reasoning/thinking configuration. Each knob is
     # settable via its TRADINGAGENTS_* env var; when that var is set (or the
