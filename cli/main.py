@@ -41,8 +41,8 @@ from cli.utils import (
     select_research_depth,
     select_shallow_thinking_agent,
 )
-from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.dataflows.utils import render_report_path
+from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.analyst_execution import (
     AnalystWallTimeTracker,
     build_analyst_execution_plan,
